@@ -1,0 +1,660 @@
+---
+title: "Semaglutide real world impact analysis - Tables"
+author: "Yuntian Liu"
+date: '2024-12-05'
+output:
+  word_document: default
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+
+# List of required packages
+packages <- c(
+  # Data manipulation
+  "dplyr", "data.table", "tidyr", "stringr", "lubridate", "haven",
+  # tables and figures
+  "gtsummary", "table1","gt"
+)
+
+
+# Function to install and load packages
+install_and_load <- function(packages) {
+  for (package in packages) {
+    if (!require(package, character.only = TRUE, quietly = TRUE)) {
+      message(sprintf("Installing package: %s", package))
+      install.packages(package, quiet = TRUE)
+      library(package, character.only = TRUE, quietly = TRUE)
+    }
+  }
+}
+
+# Install and load all packages
+install_and_load(packages)
+
+output_path <- "~/Desktop/Yale/PhD/Research/semaglutide_realworld_impact/output/tables"
+
+sentara_result_path <- "~/Desktop/Yale/PhD/Research/semaglutide_realworld_impact/sentara/results"
+ynhh_result_path <- "~/Desktop/Yale/PhD/Research/semaglutide_realworld_impact/ynhh/results"
+
+```
+
+
+
+
+
+### Table 1 patient characteristics
+```{r, echo = F}
+
+sentara_characteristics <- read.csv(file.path(sentara_result_path, str_glue("cohort/p4_12m/sentara_baseline_cohort_p4_12m.csv"))) %>%
+  mutate(observed_time_span_months = round(as.numeric((as.Date(observe_period_end) - as.Date(observe_period_start)))/365,1),
+        length_of_exposure_in_months = round(as.numeric(as.Date(last_semaglutide_prescribe_date) - as.Date(semaglutide_initiate_date) + 30)/30,1),
+        length_of_exposure_in_months_cat = case_when(
+          length_of_exposure_in_months < 3 ~ '<3',
+          length_of_exposure_in_months >= 3 & length_of_exposure_in_months < 7 ~ '3-6',
+          length_of_exposure_in_months >= 7 & length_of_exposure_in_months < 13 ~ '7-12',
+          length_of_exposure_in_months >= 13 ~ '>12',
+          TRUE ~ NA_character_),
+        length_of_exposure_in_months_cat = factor(length_of_exposure_in_months_cat, levels = c('<3', '3-6', '7-12', '>12')),
+        intensify_htn_meds = ifelse(anti_HTN_post_index_ingredient_count > anti_HTN_pre_index_ingredient_count, 1, 0),
+        intensify_hyperlipidemic_meds = ifelse(anti_hyperlipidemic_post_index_ingredient_count > anti_hyperlipidemic_pre_index_ingredient_count, 1, 0),
+        active_semaglutide_order_in_period_1 = ifelse(active_semaglutide_order_count_in_period_1 > 0, 1, 0),
+        semaglutide_order_sum_cat = case_when(
+          semaglutide_order_sum == 1 ~ '1',
+          semaglutide_order_sum >= 2 & semaglutide_order_sum < 7 ~ '2-6',
+          semaglutide_order_sum >= 7 & semaglutide_order_sum < 13 ~ '7-12',
+          semaglutide_order_sum >= 13 ~ '>12',
+          TRUE ~ NA_character_),
+        semaglutide_order_sum_cat = factor(semaglutide_order_sum_cat, levels = c('1', '2-6', '7-12', '>12')),
+        had_t2dm_diag_before_initiation = ifelse( had_t2dm_diag_before_initiation ==1,
+                                                  "People with type II diabetes",
+                                                  "People without type II diabetes")) %>%
+  select(gender, race_ethn, age_at_semaglutide_initiate, had_t2dm_diag_before_initiation, age_at_first_t2dm_diag,
+          semaglutide_order_sum, semaglutide_order_sum_cat, bmi_ref, weight_kg_ref,  
+         observed_time_span_months, length_of_exposure_in_months, length_of_exposure_in_months_cat,
+          first_order_route, active_semaglutide_order_in_period_1, has_concurrent_anti_HTN_meds, has_concurrent_anti_hyperlipidemic_meds,
+          intensify_htn_meds, intensify_hyperlipidemic_meds)%>%
+  mutate(Site = 'Sentara Health') 
+
+
+ynhh_characteristics <-read.csv(file.path(ynhh_result_path, str_glue("cohort/p4_12m/ynhh_baseline_cohort_p4_12m.csv")))%>% 
+  mutate(observed_time_span_months = round(as.numeric((as.Date(observe_period_end) - as.Date(observe_period_start)))/365,1),
+        length_of_exposure_in_months = round(as.numeric(as.Date(last_semaglutide_prescribe_date) - as.Date(semaglutide_initiate_date) + 30)/30,1),
+        length_of_exposure_in_months_cat = case_when(
+          length_of_exposure_in_months < 3 ~ '<3',
+          length_of_exposure_in_months >= 3 & length_of_exposure_in_months < 7 ~ '3-6',
+          length_of_exposure_in_months >= 7 & length_of_exposure_in_months < 13 ~ '7-12',
+          length_of_exposure_in_months >= 13 ~ '>12',
+          TRUE ~ NA_character_
+        ),
+        length_of_exposure_in_months_cat = factor(length_of_exposure_in_months_cat, levels = c('<3', '3-6', '7-12', '>12')),
+        intensify_htn_meds = ifelse(anti_HTN_post_index_ingredient_count > anti_HTN_pre_index_ingredient_count, 1, 0),
+        intensify_hyperlipidemic_meds = ifelse(anti_hyperlipidemic_post_index_ingredient_count > anti_hyperlipidemic_pre_index_ingredient_count, 1, 0),
+        active_semaglutide_order_in_period_1 = ifelse(active_semaglutide_order_count_in_period_1 > 0, 1, 0),
+        semaglutide_order_sum_cat = case_when(
+          semaglutide_order_sum == 1 ~ '1',
+          semaglutide_order_sum >= 2 & semaglutide_order_sum < 7 ~ '2-6',
+          semaglutide_order_sum >= 7 & semaglutide_order_sum < 13 ~ '7-12',
+          semaglutide_order_sum >= 13 ~ '>12',
+          TRUE ~ NA_character_
+        ),
+        semaglutide_order_sum_cat = factor(semaglutide_order_sum_cat, levels = c('1', '2-6', '7-12', '>12')),
+        had_t2dm_diag_before_initiation = ifelse( had_t2dm_diag_before_initiation ==1,
+                                                  "People with type II diabetes",
+                                                  "People without type II diabetes")) %>%
+  select(gender, race_ethn, age_at_semaglutide_initiate, had_t2dm_diag_before_initiation, age_at_first_t2dm_diag,
+          semaglutide_order_sum, semaglutide_order_sum_cat, bmi_ref, weight_kg_ref,  
+         observed_time_span_months, length_of_exposure_in_months, length_of_exposure_in_months_cat,
+          first_order_route, active_semaglutide_order_in_period_1, has_concurrent_anti_HTN_meds, has_concurrent_anti_hyperlipidemic_meds,
+          intensify_htn_meds, intensify_hyperlipidemic_meds)%>%
+  mutate(Site = 'Yale New Haven Hospital')
+
+
+pooled_characteristics <- bind_rows(sentara_characteristics, ynhh_characteristics) 
+
+tbl_pooled <- pooled_characteristics%>%
+    select( had_t2dm_diag_before_initiation,
+          gender, 
+          race_ethn, 
+          age_at_semaglutide_initiate, 
+          bmi_ref, 
+          weight_kg_ref,
+          observed_time_span_months,
+          semaglutide_order_sum,
+          semaglutide_order_sum_cat,
+          length_of_exposure_in_months,
+          length_of_exposure_in_months_cat,
+          first_order_route,
+          active_semaglutide_order_in_period_1,
+          has_concurrent_anti_HTN_meds,
+          has_concurrent_anti_hyperlipidemic_meds)%>%
+  tbl_summary(
+    by = had_t2dm_diag_before_initiation,
+    statistic = list(
+      all_continuous() ~ "{mean} ({sd})",
+      all_categorical() ~ "{n} ({p}%)"
+    ),
+    digits = list(all_continuous() ~ 1,
+                  all_categorical() ~ c(0, 1)),
+    missing_text = "(Missing)",
+    label = list(
+      age_at_semaglutide_initiate ~ "Age initiated semaglutide",
+      gender ~ "Gender",
+      race_ethn ~ "Race & Ethnicity",
+      observed_time_span_months ~ "Observed time span (years)",
+      semaglutide_order_sum ~ "Total Semaglutide orders",
+      semaglutide_order_sum_cat ~ "Total Semaglutide orders by category",
+      bmi_ref ~ "Index BMI",
+      weight_kg_ref ~ "Index weight (kg)",
+      first_order_route ~ "First semaglutide route",
+      length_of_exposure_in_months ~ "Length of exposure (months)",
+      length_of_exposure_in_months_cat ~ "Length of exposure (months) by category",
+      active_semaglutide_order_in_period_1 ~ "Active semaglutide orders in 13-24 months period",
+      has_concurrent_anti_HTN_meds ~ "Has concurrent anti-hypertensive meds",
+      has_concurrent_anti_hyperlipidemic_meds ~ "Has concurrent anti-hyperlipidemic meds"))%>%
+  add_overall()%>%
+  modify_caption("**Table 1 Patient characteristics**") %>%
+  bold_labels()%>%
+  as_gt() %>%
+  tab_options(
+    table.font.size = px(9),
+    column_labels.font.weight = "bold",
+    table.width = px(800),
+    data_row.padding = px(3),
+    row_group.padding = px(2)
+  ) %>%
+  tab_options(
+    table.font.size = px(7),  # Adjust this value as needed (e.g., 8, 9, 10)
+    column_labels.font.size = px(8)
+  )
+
+# save table 1
+tbl_pooled %>%
+  gtsave(filename = file.path(output_path, str_glue("table1_pooled.docx")))
+```
+
+
+
+
+
+
+### Table 2: Treatment effects on weight and other cardiovascular risk factors
+```{r, echo = F,  fig.width=12, fig.height=19, out.width="90%"}
+
+
+table2_by_pspec <- function(p_spec){
+
+  p_num <- strsplit(p_spec, "_")[[1]][1]
+  period_time_span <- strsplit(p_spec, "_")[[1]][2]
+
+  round_digit <- 2
+  #############
+  ## sentara ##
+  #############
+
+  # combine and process results
+  sentara_trt_effect_biomarkers <- list.files(
+    path = file.path(sentara_result_path, str_glue("estimates/biomarkers/{p_spec}")),
+    pattern = str_glue("sentara_{p_spec}.*\\.csv$"),
+    full.names = TRUE) %>%
+    lapply(data.table::fread) %>%
+    bind_rows()%>%
+    mutate(time = case_when(
+      grepl("^a", Type) & period == 1 ~ "13-24m",
+      grepl("^b", Type) & period == 0 ~ "1-24m",
+      TRUE ~ NA_character_))%>%
+    filter(time %in% c("1-24m","13-24m")) %>%
+    filter(grepl("^2", Model))%>% # only random effect model
+    mutate(Cohort = str_trim(gsub("^[0-9].|\\([^()]*\\)","", Cohort)),
+           Cohort = ifelse(Cohort == 'Pooled', 'Overall',Cohort),
+           beta_sentara = estimate,
+           se_sentara = std.error) %>%
+    select(Outcome, time, Cohort, period, beta_sentara, se_sentara)
+
+  ##########
+  ## YNHH ##
+  ##########
+
+  # combine and process results
+  ynhh_trt_effect_biomarkers <- list.files(
+    path = file.path(ynhh_result_path, str_glue("estimates/biomarkers/{p_spec}")),
+    pattern = str_glue("ynhh_{p_spec}.*\\.csv$"),
+    full.names = TRUE) %>%
+    lapply(data.table::fread) %>%
+    bind_rows()%>%
+    rename_at(vars(matches("period")), ~"period") %>%
+    mutate(time = case_when(
+      grepl("^a", Type) & period == 1 ~ "13-24m",
+      grepl("^b", Type) & period == 0 ~ "1-24m",
+      TRUE ~ NA_character_))%>%
+    filter(time %in% c("1-24m","13-24m")) %>%
+    filter(grepl("^2", Model))%>% # only random effect model
+    mutate(Cohort = str_trim(gsub("^[0-9].|\\([^()]*\\)","", Cohort)),
+           Cohort = ifelse(Cohort == 'Pooled', 'Overall',Cohort),
+           beta_ynhh = estimate,
+           se_ynhh = std.error) %>%
+    select(Outcome, time, Cohort, period, beta_ynhh, se_ynhh)
+
+
+  # function that pools the results using inverse variance weighted method
+  pool_estimates <- function(beta1, se1, beta2, se2) {
+    # Calculate weights
+    w1 <- 1/se1^2
+    w2 <- 1/se2^2
+
+    # Calculate pooled estimate
+    beta_pooled <- (w1*beta1 + w2*beta2)/(w1 + w2)
+
+    # Calculate pooled standard error
+    se_pooled <- sqrt(1/(w1 + w2))
+
+    # Return as data frame for easier binding
+    data.frame(
+      estimate_pooled = beta_pooled,
+      se_pooled = se_pooled,
+      # Optional: include additional statistics
+      weight1 = w1/(w1 + w2),
+      weight2 = w2/(w1 + w2)
+    )
+  }
+
+  ##########################
+  ## Table 2 construction ##
+  ##########################
+
+
+  table2_pooled_result <- sentara_trt_effect_biomarkers %>%
+    left_join(ynhh_trt_effect_biomarkers , by = c ('Outcome', 'time', 'Cohort', 'period'))%>%
+    rowwise() %>%
+    mutate(
+      pool_estimates(beta_sentara, se_sentara, beta_ynhh, se_ynhh)
+    ) %>%
+    ungroup()%>%
+    mutate(
+      estimate_pooled = ifelse(is.na(estimate_pooled), 0, estimate_pooled),
+      conf_low_pooled = estimate_pooled - 1.96 * se_pooled,
+      conf_high_pooled = estimate_pooled + 1.96 * se_pooled,
+      est_ci_pooled = paste0(round(estimate_pooled,round_digit),
+                             " (",round(conf_low_pooled,round_digit),
+                             ", ",round(conf_high_pooled,round_digit),")"))%>%
+    mutate(
+      Cohort = factor(str_trim(Cohort, side = "both"),  levels = c('Overall','Diabetic','Non-Diabetic')),
+      Cohort_r = case_when(
+        Cohort == 'Overall' ~ 'Overall',
+        Cohort == 'Diabetic' ~ 'People with type II diabetes',
+        Cohort == 'Non-Diabetic' ~ 'People without type II diabetes'
+      )) %>%
+    filter(!is.na(Outcome)) %>%
+    pivot_wider(
+      names_from = Outcome,
+      values_from = est_ci_pooled,
+      id_cols = c (time, Cohort_r)
+    )%>%
+    select(time, Cohort_r, weight_pct, dbp, sbp, hba1c, total_cholesterol)
+
+
+
+  # Generate source note based on model
+  source_note <- str_glue("Values shown as: point estimate (95% CI).")
+
+  # Create gt table
+  gt_table <- table2_pooled_result %>%
+    group_by(time, Cohort_r) %>%
+    gt(
+      groupname_col = c("time")
+    ) %>%
+    cols_label(
+      Cohort_r = "",
+      weight_pct = "% of index Weight",
+      sbp = "Systolic BP (mmHg)",
+      dbp = "Diastolic BP (mmHg)",
+      hba1c = "HbA1c (%)",
+      total_cholesterol = "Cholesterol (mg/dL)"
+    ) %>%
+    tab_source_note(
+      source_note = source_note
+    ) %>%
+      # Add right alignment to Cohort column
+      tab_style(
+        style = cell_text(align = "right"),
+        locations = cells_body(
+          columns = Cohort_r
+        )
+      ) %>%
+    tab_header(title = "Treatment effect on CVD risk related biomarkers")%>%
+    tab_options(
+      table.font.size = px(7),  # Adjust this value as needed (e.g., 8, 9, 10)
+      column_labels.font.size = px(8)
+    )
+
+  # Export table
+  gt_table %>%
+    gtsave(filename = file.path(output_path, str_glue("table2_{p_spec}.docx")))
+
+  return (gt_table)
+}
+
+
+table2_by_pspec("p4_12m")
+
+
+```
+
+
+
+### Table 3: Impact on healthcare expenditure 
+### 12 months
+```{r, echo = F,  fig.width=12, fig.height=19, out.width="90%"}
+
+
+table3_by_pspec <- function(dx_type, p_spec){
+  
+  p_num <- strsplit(p_spec, "_")[[1]][1]
+  period_time_span <- strsplit(p_spec, "_")[[1]][2]
+
+  round_digit <- 0
+  #############
+  ## sentara ##
+  #############
+  
+  # combine and process results
+  sentara_expenditure_outcomes <- list.files(
+    path = file.path(sentara_result_path, str_glue("estimates/expenditures/{p_spec}")),
+    pattern = str_glue("sentara_{p_spec}_{dx_type}.*\\.csv$"),
+    full.names = TRUE) %>%
+    lapply(data.table::fread) %>%
+    bind_rows()%>%
+    mutate(time = case_when(
+      grepl("^a", Type) & period == 1 ~ "13-24m",
+      grepl("^b", Type) & period == 0 ~ "1-24m",
+      TRUE ~ NA_character_))%>%
+    filter(time %in% c("1-24m","13-24m")) %>%
+    filter(grepl("^2", Model))%>% # only random effect model
+    mutate(Cohort = str_trim(gsub("^[0-9].|\\([^()]*\\)","", Cohort)),
+           Cohort = ifelse(Cohort == 'Pooled', 'Overall',Cohort),
+           beta_sentara = estimate,
+           se_sentara = std.error) %>%
+    select(Outcome, time ,Cohort, period, beta_sentara, se_sentara)
+    
+
+  ##########
+  ## YNHH ##
+  ##########
+  
+  # combine and process results
+  ynhh_expenditure_outcomes <- list.files(
+    path = file.path(ynhh_result_path, str_glue("estimates/expenditures/{p_spec}")),
+    pattern = str_glue("ynhh_{p_spec}_{dx_type}.*\\.csv$"),
+    full.names = TRUE) %>%
+    lapply(data.table::fread) %>%
+    bind_rows()%>%
+    rename_at(vars(matches("period")), ~"period") %>%
+    mutate(time = case_when(
+      grepl("^a", Type) & period == 1 ~ "13-24m",
+      grepl("^b", Type) & period == 0 ~ "1-24m",
+      TRUE ~ NA_character_))%>%
+    filter(time %in% c("1-24m","13-24m")) %>%
+    filter(grepl("^2", Model))%>% # only random effect model
+    mutate(Cohort = str_trim(gsub("^[0-9].|\\([^()]*\\)","", Cohort)),
+           Cohort = ifelse(Cohort == 'Pooled', 'Overall',Cohort),
+           beta_ynhh = estimate,
+           se_ynhh = std.error) %>%
+    select(Outcome, time ,Cohort, period, beta_ynhh, se_ynhh)
+    
+  
+  # function that pools the results using inverse variance weighted method
+  pool_estimates <- function(beta1, se1, beta2, se2) {
+    # Calculate weights
+    w1 <- 1/se1^2
+    w2 <- 1/se2^2
+    
+    # Calculate pooled estimate
+    beta_pooled <- (w1*beta1 + w2*beta2)/(w1 + w2)
+    
+    # Calculate pooled standard error
+    se_pooled <- sqrt(1/(w1 + w2))
+    
+    # Return as data frame for easier binding
+    data.frame(
+      estimate_pooled = beta_pooled,
+      se_pooled = se_pooled,
+      # Optional: include additional statistics
+      weight1 = w1/(w1 + w2),
+      weight2 = w2/(w1 + w2)
+    )
+  }
+  
+  ##########################
+  ## Table 3 construction ##
+  ##########################
+  table3_pooled_result <-sentara_expenditure_outcomes %>%
+    left_join(ynhh_expenditure_outcomes , by = c ('Outcome', 'time', 'Cohort', 'period'))%>%
+    rowwise() %>%
+    mutate(
+      pool_estimates(beta_sentara, se_sentara, beta_ynhh, se_ynhh)
+    ) %>%
+    ungroup()%>%
+    mutate(
+      estimate_pooled = ifelse(is.na(estimate_pooled), 0, estimate_pooled),
+      conf_low_pooled = estimate_pooled - 1.96 * se_pooled,
+      conf_high_pooled = estimate_pooled + 1.96 * se_pooled,
+      est_ci_pooled = paste0(round(estimate_pooled,round_digit),
+                             " (",round(conf_low_pooled,round_digit),
+                             ", ",round(conf_high_pooled,round_digit),")"))%>%
+    mutate(
+      Cohort = factor(str_trim(Cohort, side = "both"),  levels = c('Overall','Diabetic','Non-Diabetic')),
+      Cohort_r = case_when(
+        Cohort == 'Overall' ~ 'Overall',
+        Cohort == 'Diabetic' ~ 'People with type II diabetes',
+        Cohort == 'Non-Diabetic' ~ 'People without type II diabetes'
+      )) %>%
+    filter(!is.na(Outcome)) %>%
+    pivot_wider(
+      names_from = Outcome,
+      values_from = est_ci_pooled,
+      id_cols = c (time, Cohort_r)
+    )%>%
+    select(time,Cohort_r,
+         total_expenditure, inpatient_expenditure, outpatient_expenditure,
+         icd_cd_expenditure,icd_d_expenditure, icd_e_expenditure, icd_f_expenditure, icd_g_expenditure,icd_h_expenditure,icd_i_expenditure,
+         icd_j_expenditure,icd_k_expenditure, icd_l_expenditure,icd_m_expenditure,icd_n_expenditure)
+  
+
+  
+  # Generate source note based on model
+  source_note <- str_glue("Values shown as: point estimate (95% CI). 
+                         ICD10: 
+                         CD (Neoplasms); 
+                         D (Diseases of the blood and blood-forming organs and certain disorders involving the immune mechanism)
+                         E (Endocrine, nutritional and metabolic diseases)
+                         F (Mental, Behavioral and Neurodevelopmental disorders)
+                         G (Diseases of the nervous system)
+                         H (Diseases of the eye, adnexa, ear and mastoid process)
+                         I (Diseases of the circulatory system)
+                         J (Diseases of the respiratory system)
+                         K (Diseases of the digestive system)
+                         L (Diseases of the skin and subcutaneous tissue)
+                         M (Diseases of the musculoskeletal system and connective tissue)
+                         N (Diseases of the genitourinary system)")
+  
+  
+  # Create gt table
+  gt_table <- table3_pooled_result %>%
+    group_by(time, Cohort_r) %>%
+    gt(
+      groupname_col = c("time")
+    ) %>%
+    cols_label(
+      Cohort_r = "",
+      total_expenditure = 'Total',
+      inpatient_expenditure = 'Inpatient',
+      outpatient_expenditure= 'Outpatient',
+      icd_cd_expenditure = 'CD',
+      icd_d_expenditure = 'D', 
+      icd_e_expenditure = 'E', 
+      icd_f_expenditure= 'F', 
+      icd_g_expenditure= 'G',
+      icd_h_expenditure= 'H',
+      icd_i_expenditure= 'I',
+      icd_j_expenditure= 'J',
+      icd_k_expenditure= 'K', 
+      icd_l_expenditure= 'L',
+      icd_m_expenditure= 'M',
+      icd_n_expenditure= 'N'
+    ) %>%
+      tab_source_note(
+        source_note = source_note
+    ) %>%
+    # Add right alignment to Cohort column
+    tab_style(
+      style = cell_text(align = "right"),
+      locations = cells_body(
+        columns = Cohort_r
+      )
+    ) %>%
+    tab_spanner(
+      label = "Break down by ICD10CM",
+      columns = c(icd_cd_expenditure,icd_d_expenditure, icd_e_expenditure, icd_f_expenditure, icd_g_expenditure,icd_h_expenditure,icd_i_expenditure,
+           icd_j_expenditure,icd_k_expenditure, icd_l_expenditure,icd_m_expenditure,icd_n_expenditure)
+    )%>% tab_spanner(
+      label = "Overall effect",
+      columns = c(total_expenditure, inpatient_expenditure, outpatient_expenditure)
+    ) %>%
+    tab_header(title = "Treatment effect on healthcare expenditure") %>%
+    tab_options(
+      table.font.size = px(7),  # Adjust this value as needed (e.g., 8, 9, 10)
+      column_labels.font.size = px(8)
+    )
+  
+  
+  # Export table
+  gt_table %>%
+    gtsave(filename = file.path(output_path, str_glue("table3_{dx_type}_{p_spec}.docx")))
+  
+  return (gt_table)
+}
+
+
+# 12m
+## p4
+table3_by_pspec("primary","p4_12m")
+# ## p5
+# table3_by_model_pspec("primary","p5_12m", "2024-12-01")
+# ## p6
+# table3_by_model_pspec("primary","p6_12m", "2024-12-01")
+# 
+# 
+# # 6 month
+# table3_by_model_pspec("primary","p5_6m", "2024-12-01")
+# table3_by_model_pspec("primary","p6_6m", "2024-12-01")
+# table3_by_model_pspec("primary","p7_6m", "2024-12-01")
+# table3_by_model_pspec("primary","p8_6m", "2024-12-01")
+
+```
+
+
+
+
+
+
+
+
+
+## Appendix
+### sensitivity p5 in p4 (12m)
+```{r, echo=FALSE}
+
+sentara_characteristics <- read.csv(file.path(sentara_result_path, "sensitivity_analysis/sentara_baseline_characteristics_check_p4_p5_12m.csv")) %>%
+  mutate(observed_time_span_months = round(as.numeric((as.Date(observe_period_end) - as.Date(observe_period_start)))/365,1)) %>%
+  select(gender, race_ethn, age_at_semaglutide_initiate, had_t2dm_diag_before_initiation, age_at_first_t2dm_diag,
+         semaglutide_order_sum, bmi_ref, weight_kg_ref,  observed_time_span_months, in_p5_12m)%>%
+  mutate(Site = 'Sentara Health')
+
+ynhh_characteristics <- read.csv(file.path(ynhh_result_path, "sensitivity_analysis/ynhh_baseline_characteristics_check_p4_p5_12m.csv"))%>%
+  mutate(observed_time_span_months = round(as.numeric((as.Date(observe_period_end) - as.Date(observe_period_start)))/365,1)) %>%
+  select(gender, race_ethn, age_at_semaglutide_initiate, had_t2dm_diag_before_initiation, age_at_first_t2dm_diag,
+         semaglutide_order_sum, bmi_ref, weight_kg_ref,  observed_time_span_months, in_p5_12m)%>%
+  mutate(Site = 'Yale New Haven Hospital')
+
+
+
+## sentara
+tbl_sentara <- sentara_characteristics%>%
+   select(gender, 
+         race_ethn, 
+         age_at_semaglutide_initiate, 
+         observed_time_span_months,
+         had_t2dm_diag_before_initiation,
+         bmi_ref, 
+         weight_kg_ref,
+         semaglutide_order_sum,
+         in_p5_12m)%>%
+  tbl_summary(
+    by = in_p5_12m,
+    digits = list(all_continuous() ~ 1,
+                  all_categorical() ~ 0),
+    missing_text = "(Missing)",
+    label = list(
+      age_at_semaglutide_initiate ~ "Age initiated semaglutide",
+      gender ~ "Gender",
+      race_ethn ~ "Race & Ethnicity",
+      observed_time_span_months ~ "Observed time span (years)",
+      semaglutide_order_sum ~ "Total Semaglutide orders",
+      bmi_ref ~ "Index BMI",
+      weight_kg_ref ~ "Index weight (kg)"))
+  #modify_caption("**Table 1 Patient characteristics**") %>%
+  #bold_labels()
+
+
+# ynhh
+tbl_ynhh  <- ynhh_characteristics%>%
+   select(gender, 
+         race_ethn, 
+         age_at_semaglutide_initiate, 
+         observed_time_span_months,
+         had_t2dm_diag_before_initiation,
+         bmi_ref, 
+         weight_kg_ref,
+         semaglutide_order_sum,
+         in_p5_12m)%>%
+  tbl_summary(
+    by = in_p5_12m,
+    digits = list(all_continuous() ~ 1,
+                  all_categorical() ~ 0),
+    missing_text = "(Missing)",
+    label = list(
+      age_at_semaglutide_initiate ~ "Age initiated semaglutide",
+      gender ~ "Gender",
+      race_ethn ~ "Race & Ethnicity",
+      observed_time_span_months ~ "Observed time span (years)",
+      semaglutide_order_sum ~ "Total Semaglutide orders",
+      bmi_ref ~ "Index BMI",
+      weight_kg_ref ~ "Index weight (kg)"))
+
+# merge tables
+table1_by_in_p5_12m  <-
+  tbl_merge(
+    tbls = list(tbl_sentara, tbl_ynhh),
+    tab_spanner = c("**Sentara Health**", "**Yale New Haven Hospital**")
+  )%>%
+  modify_caption("**P5 Patient characteristics**") %>%
+  bold_labels()%>%
+  as_gt() %>%
+  gt::tab_source_note(gt::md("*Data is updated up to 2024-12-01*")) %>%
+    tab_options(
+      table.font.size = px(7),  # Adjust this value as needed (e.g., 8, 9, 10)
+      column_labels.font.size = px(8)
+    )
+  ##gt::gtsave(filename = '/Users/yuntian/Desktop/Yale/PhD/Research/semaglutide_realworld_impact/tables/table.docx')
+  
+table1_by_in_p5_12m
+
+table1_by_in_p5_12m  %>%
+  gt::gtsave(filename = file.path(output_path, "table1_by_in_p5_12m.docx"))
+  
+
+
+
+```
+

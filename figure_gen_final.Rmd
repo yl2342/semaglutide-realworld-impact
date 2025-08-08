@@ -1,0 +1,1101 @@
+---
+title: "Semaglutide real world impact analysis - Figures"
+author: "Yuntian Liu"
+date: '2024-12-05'
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+
+# List of required packages
+packages <- c(
+  # Data manipulation
+  "dplyr", "data.table", "tidyr", "stringr", "lubridate", "haven",
+  # tables and figures
+  "gtsummary", "table1","gt", "ggplot2","patchwork"
+)
+
+
+# Function to install and load packages
+install_and_load <- function(packages) {
+  for (package in packages) {
+    if (!require(package, character.only = TRUE, quietly = TRUE)) {
+      message(sprintf("Installing package: %s", package))
+      install.packages(package, quiet = TRUE)
+      library(package, character.only = TRUE, quietly = TRUE)
+    }
+  }
+}
+
+# Install and load all packages
+install_and_load(packages)
+
+output_path <- "~/Desktop/Yale/PhD/Research/semaglutide_realworld_impact/output/figures"
+
+sentara_result_path <- "~/Desktop/Yale/PhD/Research/semaglutide_realworld_impact/sentara/results"
+ynhh_result_path <- "~/Desktop/Yale/PhD/Research/semaglutide_realworld_impact/ynhh/results"
+
+```
+
+
+
+
+## Figure 1
+```{r,echo = FALSE, fig.width= 10, fig.height=7, fig.align='center', dpi=300} 
+
+get_pooled_results_dynamic_effect_biomarkers<- function(p_spec){
+  
+  round_digit <- 2
+  #############
+  ## sentara ##
+  #############
+  # combine and process results
+  sentara_dynamic_effect_biomarkers <- list.files(
+    path = file.path(sentara_result_path, str_glue("estimates/biomarkers/{p_spec}")),
+    pattern = str_glue("sentara_{p_spec}.*\\.csv$"),
+    full.names = TRUE) %>%
+    lapply(data.table::fread) %>%
+    bind_rows()%>%
+    filter(grepl("^a", Type))%>% # dynamic multiple effect
+    mutate(Cohort = str_trim(gsub("^[0-9].|\\([^()]*\\)","", Cohort)),
+           Cohort = ifelse(Cohort == 'Pooled', 'Overall',Cohort),
+           beta_sentara = estimate,
+           se_sentara = std.error,
+           N_sentara = N) %>%
+    select(Outcome, Model,Cohort, period, beta_sentara, se_sentara, N_sentara)
+    
+  
+
+  ##########
+  ## YNHH ##
+  ##########
+  # combine and process results
+  ynhh_dynamic_effect_biomarkers <- list.files(
+    path = file.path(ynhh_result_path, str_glue("estimates/biomarkers/{p_spec}")),
+    pattern = str_glue("ynhh_{p_spec}.*\\.csv$"),
+    full.names = TRUE) %>%
+    lapply(data.table::fread) %>%
+    bind_rows()%>%
+    filter(grepl("^a", Type))%>%  # dynamic multiple effect
+    mutate(Cohort = str_trim(gsub("^[0-9].|\\([^()]*\\)","", Cohort)),
+           Cohort = ifelse(Cohort == 'Pooled', 'Overall',Cohort),
+           beta_ynhh = estimate,
+           se_ynhh = std.error,
+           N_ynhh = N) %>%
+    rename_at(vars(matches("period_6m")), ~"period") %>%
+    select(Outcome, Model,Cohort, period, beta_ynhh, se_ynhh, N_ynhh)
+    
+  
+  
+  # function that pools the results using inverse variance weighted method
+  pool_estimates <- function(beta1, se1, beta2, se2) {
+    # Calculate weights
+    w1 <- 1/se1^2
+    w2 <- 1/se2^2
+    
+    # Calculate pooled estimate
+    beta_pooled <- (w1*beta1 + w2*beta2)/(w1 + w2)
+    
+    # Calculate pooled standard error
+    se_pooled <- sqrt(1/(w1 + w2))
+    
+    # Return as data frame for easier binding
+    data.frame(
+      estimate_pooled = beta_pooled,
+      se_pooled = se_pooled,
+      # Optional: include additional statistics
+      weight1 = w1/(w1 + w2),
+      weight2 = w2/(w1 + w2)
+    )
+  }
+  
+  figure1_pooled_result <- sentara_dynamic_effect_biomarkers %>%
+    left_join(ynhh_dynamic_effect_biomarkers, by = c ('Outcome', 'Model', 'Cohort', 'period'))%>%
+    rowwise() %>%
+    mutate(
+      pool_estimates(beta_sentara, se_sentara, beta_ynhh, se_ynhh)
+    ) %>%
+    ungroup()%>%
+    mutate(
+      N_pooled = N_sentara + N_ynhh,
+      estimate_pooled = ifelse(is.na(estimate_pooled), 0, estimate_pooled),
+      conf_low_pooled = estimate_pooled - 1.96 * se_pooled,
+      conf_high_pooled = estimate_pooled + 1.96 * se_pooled,
+      est_ci_pooled = paste0(round(estimate_pooled,round_digit),
+                             " (",round(conf_low_pooled,round_digit),
+                             ", ",round(conf_high_pooled,round_digit),")"))%>%
+    mutate(Outcome = case_when(
+      Outcome == 'sbp' ~ 'SBP (mmHg)',
+      Outcome == 'dbp' ~ 'DBP (mmHg)',
+      Outcome == 'hba1c' ~ 'HBA1C (%)',
+      Outcome == 'total_cholesterol' ~ 'Cholesterol (mg/dL)',
+      Outcome == 'weight_pct' ~ 'Percent of baseline weight (%)',
+      TRUE ~ NA_character_),
+    Outcome = factor(Outcome, levels = c('Percent of baseline weight (%)','SBP (mmHg)',
+                                         'DBP (mmHg)','HBA1C (%)','Cholesterol (mg/dL)')),
+    Cohort = factor(str_trim(Cohort, side = "both"),  levels = c('Overall','Diabetic','Non-Diabetic')),
+    Cohort_r = case_when(
+      Cohort == 'Overall' ~ 'Overall',
+      Cohort == 'Diabetic' ~ 'People with type II diabetes',
+      Cohort == 'Non-Diabetic' ~ 'People without type II diabetes',
+      TRUE ~ NA_character_)) %>%
+    filter(!is.na(Outcome))
+  
+}
+
+
+
+figure1_pooled_p4_12m_df <- get_pooled_results_dynamic_effect_biomarkers("p4_12m")%>% 
+  filter(grepl("^2", Model))%>% ## random effect
+  mutate(P = '4 Periods (12 months)')%>%
+  mutate(
+    period = case_when(
+      period == -2 ~'[-24m,-12m)',
+      period == -1 ~'[-12m,Index)',
+      period == 0 ~'[Index,12m)',
+      period == 1 ~'[12m,24m)',
+      period == 2 ~'[24m,36m)',
+      TRUE ~ NA_character_),
+    period = factor(period, levels  = c('[-24m,-12m)','[-12m,Index)','[Index,12m)','[12m,24m)','[24m,36m)'))
+    ) 
+
+
+(figure1_pooled_p4_12m <- ggplot(figure1_pooled_p4_12m_df , 
+                        aes(x = factor(period), y = estimate_pooled, 
+                            color = Cohort_r,
+                            shape = Cohort_r)) +
+    facet_wrap(vars(Outcome),  ncol =3, scale = 'free')+
+    geom_point(position = position_dodge(width = 0.5), size = 1.5) +
+    theme_bw() +
+    geom_errorbar(aes(ymin = conf_low_pooled, 
+                      ymax = conf_high_pooled), 
+                  width = 0.3,
+                  position = position_dodge(width = 0.5),
+                  linewidth = 1.,
+                  alpha = 0.8) +
+    geom_hline(yintercept = 0, linetype = 'dashed', color = 'grey', linewidth = 1) +
+    labs(x = "12-month Period", y = "Change relative to baseline") +
+    theme(legend.position = "bottom",
+          plot.title = element_text(hjust = 0.5, face = "bold"))+
+    scale_color_brewer("Group", palette = 'Set2')+
+    scale_shape_discrete("Group"))
+
+
+figure1_pooled_p4_12m %>%
+    ggsave(file.path(output_path,'figure1_pooled_p4_12m.png'),.,
+           width= 12, height=7)
+
+
+figure1_pooled_p4_12m %>%
+    ggsave(file.path(output_path,'Figure1.tiff'),.,
+           device = "tiff",
+           dpi = 300,
+           width= 12,
+           height=7)
+
+
+```
+
+
+
+
+
+
+## Figure 2
+```{r,echo = FALSE, fig.width= 13, fig.height=8, fig.align='center', dpi=300} 
+
+
+get_pooled_results_dynamic_effect_expenditures<- function(dx_type, p_spec){
+  
+  round_digit <- 0
+  
+  #############
+  ## sentara ##
+  #############
+  sentara_dynamic_effect_expenditure<- list.files(
+    path = file.path(sentara_result_path, str_glue("estimates/expenditures/{p_spec}")),
+    pattern = str_glue("sentara_{p_spec}_{dx_type}.*\\.csv$"),
+    full.names = TRUE ) %>%
+    lapply(data.table::fread) %>%
+    bind_rows()%>%
+    filter(grepl("^a", Type))%>%  # dynamic multiple effect
+    mutate(Cohort = str_trim(gsub("^[0-9].|\\([^()]*\\)","", Cohort)),
+           Cohort = ifelse(Cohort == 'Pooled', 'Overall',Cohort),
+           beta_sentara = estimate,
+           se_sentara = std.error,
+           N_sentara = N) %>%
+    select(Outcome, Model,Cohort, period, beta_sentara, se_sentara, N_sentara)
+  
+  ##########
+  ## YNHH ##
+  ##########
+  ynhh_dynamic_effect_expenditure<- list.files(
+    path = file.path(ynhh_result_path, str_glue("estimates/expenditures/{p_spec}")),
+    pattern = str_glue("ynhh_{p_spec}_{dx_type}.*\\.csv$"),
+    full.names = TRUE ) %>%
+    lapply(data.table::fread) %>%
+    bind_rows()%>%
+    filter(grepl("^a", Type))%>%  # dynamic multiple effect
+    mutate(Cohort = str_trim(gsub("^[0-9].|\\([^()]*\\)","", Cohort)),
+           Cohort = ifelse(Cohort == 'Pooled', 'Overall',Cohort),
+           beta_ynhh = estimate,
+           se_ynhh = std.error,
+           N_ynhh = N) %>%
+    rename_at(vars(matches("period_6m")), ~"period") %>%
+    select(Outcome, Model,Cohort, period, beta_ynhh, se_ynhh, N_ynhh)
+    
+  
+  
+  # function that pools the results using inverse variance weighted method
+  pool_estimates <- function(beta1, se1, beta2, se2) {
+    # Calculate weights
+    w1 <- 1/se1^2
+    w2 <- 1/se2^2
+    
+    # Calculate pooled estimate
+    beta_pooled <- (w1*beta1 + w2*beta2)/(w1 + w2)
+    
+    # Calculate pooled standard error
+    se_pooled <- sqrt(1/(w1 + w2))
+    
+    # Return as data frame for easier binding
+    data.frame(
+      estimate_pooled = beta_pooled,
+      se_pooled = se_pooled,
+      # Optional: include additional statistics
+      weight1 = w1/(w1 + w2),
+      weight2 = w2/(w1 + w2)
+    )
+  }
+  
+  figure2_pooled_result <- sentara_dynamic_effect_expenditure %>%
+    left_join(ynhh_dynamic_effect_expenditure, by = c ('Outcome', 'Model', 'Cohort', 'period'))%>%
+    rowwise() %>%
+    mutate(
+      pool_estimates(beta_sentara, se_sentara, beta_ynhh, se_ynhh)
+    ) %>%
+    ungroup()%>%
+    mutate(
+      N_pooled = N_sentara + N_ynhh,
+      estimate_pooled = ifelse(is.na(estimate_pooled), 0, estimate_pooled),
+      conf_low_pooled = estimate_pooled - 1.96 * se_pooled,
+      conf_high_pooled = estimate_pooled + 1.96 * se_pooled,
+      est_ci_pooled = paste0(round(estimate_pooled,round_digit),
+                             " (",round(conf_low_pooled,round_digit),
+                             ", ",round(conf_high_pooled,round_digit),")"))%>%
+    filter(Outcome %in% c("total_expenditure","inpatient_expenditure", "outpatient_expenditure")) %>%
+    mutate(Outcome = case_when(
+      Outcome == "total_expenditure" ~ 'Monthly total expenditure ($)',
+      Outcome == "inpatient_expenditure" ~  'Monthly inpatient expenditure ($)',
+      Outcome == "outpatient_expenditure" ~ 'Monthly outpatient expenditure ($)'),
+    Outcome = factor(Outcome, levels = c('Monthly total expenditure ($)','Monthly inpatient expenditure ($)','Monthly outpatient expenditure ($)')),
+    Cohort = factor(str_trim(Cohort, side = "both"),  levels = c('Overall','Diabetic','Non-Diabetic')),
+    Cohort_r = case_when(
+      Cohort == 'Overall' ~ 'Overall',
+      Cohort == 'Diabetic' ~ 'People with type II diabetes',
+      Cohort == 'Non-Diabetic' ~ 'People without type II diabetes',
+      TRUE ~ NA_character_))
+  
+}
+
+
+
+#############
+## Primary ##
+#############
+figure2_pooled_primary_p4_12m_df  <- get_pooled_results_dynamic_effect_expenditures("primary","p4_12m")%>% 
+  mutate(P = '4 Periods (12 months)')%>%
+  filter(grepl("^2", Model))%>% ## random effect model only
+  mutate(P = '4 Periods (12 months)')%>%
+  mutate(
+    period = case_when(
+      period == -2 ~'[-24m,-12m)',
+      period == -1 ~'[-12m,Index)',
+      period == 0 ~'[Index,12m)',
+      period == 1 ~'[12m,24m)',
+      period == 2 ~'[24m,36m)',
+      TRUE ~ NA_character_),
+    period = factor(period, levels  = c('[-24m,-12m)','[-12m,Index)','[Index,12m)','[12m,24m)','[24m,36m)'))
+    ) 
+
+
+## total expenditure
+(figure2_pooled_primary_p4_12m <- ggplot(figure2_pooled_primary_p4_12m_df , 
+                                     aes(x = factor(period), y = estimate_pooled, 
+                                         color = Cohort_r,
+                                          shape = Cohort_r)) +
+    facet_wrap( vars(Outcome))+
+    geom_point(position = position_dodge(width = 0.5), size = 1.5) +
+    theme_bw() +
+    geom_errorbar(aes(ymin = conf_low_pooled, 
+                      ymax = conf_high_pooled), 
+                  width = 0.3,
+                  position = position_dodge(width = 0.5),
+                  linewidth = 1.,
+                  alpha = 0.8) +
+    geom_hline(yintercept = 0, linetype = 'dashed', color = 'grey', linewidth = 1) +
+    labs(x = "12-month-period", y = "Change relative to baseline") +
+    theme(legend.position = "bottom",
+          plot.title = element_text(hjust = 0.5, face = "bold"))+
+    scale_color_brewer("", palette = 'Set2')+
+    scale_shape_discrete(""))
+
+
+figure2_pooled_primary_p4_12m  %>%
+    ggsave(file.path(output_path,'figure2_pooled_primary_p4_12m.png'),.,
+           width= 12, height=5)
+
+
+figure2_pooled_primary_p4_12m %>%
+    ggsave(file.path(output_path,'Figure2.tiff'),.,
+           device = "tiff",
+           dpi = 300,
+           width= 12,
+           height=5)
+
+```
+
+
+
+
+## 3. healthcare utilization
+```{r,echo = FALSE, fig.width= 13, fig.height=8, fig.align='center', dpi=300} 
+
+
+get_pooled_results_dynamic_effect_utilizations<- function(p_spec){
+  
+  round_digit <- 10
+  
+  #############
+  ## sentara ##
+  #############
+  sentara_dynamic_effect_utilization<- list.files(
+    path = file.path(sentara_result_path, str_glue("estimates/utilizations/{p_spec}")),
+    pattern = str_glue("sentara_{p_spec}_.*\\.csv$"),
+    full.names = TRUE ) %>%
+    lapply(data.table::fread) %>%
+    bind_rows()%>%
+    filter(grepl("^a", Type))%>%  # dynamic multiple effect
+    mutate(Cohort = str_trim(gsub("^[0-9].|\\([^()]*\\)","", Cohort)),
+           Cohort = ifelse(Cohort == 'Pooled', 'Overall',Cohort),
+           beta_sentara = estimate,
+           se_sentara = std.error,
+           N_sentara = N) %>%
+    select(Outcome, Model,Cohort, period, beta_sentara, se_sentara, N_sentara)
+  
+  ##########
+  ## YNHH ##
+  ##########
+  ynhh_dynamic_effect_utilization<- list.files(
+    path = file.path(ynhh_result_path, str_glue("estimates/utilizations/{p_spec}")),
+    pattern = str_glue("ynhh_{p_spec}_.*\\.csv$"),
+    full.names = TRUE ) %>%
+    lapply(data.table::fread) %>%
+    bind_rows()%>%
+    filter(grepl("^a", Type))%>%  # dynamic multiple effect
+    mutate(Cohort = str_trim(gsub("^[0-9].|\\([^()]*\\)","", Cohort)),
+           Cohort = ifelse(Cohort == 'Pooled', 'Overall',Cohort),
+           beta_ynhh = estimate,
+           se_ynhh = std.error,
+           N_ynhh = N) %>%
+    rename_at(vars(matches("period_6m")), ~"period") %>%
+    select(Outcome, Model,Cohort, period, beta_ynhh, se_ynhh, N_ynhh )
+    
+  
+  
+  # function that pools the results using inverse variance weighted method
+  pool_estimates <- function(beta1, se1, beta2, se2) {
+    # Calculate weights
+    w1 <- 1/se1^2
+    w2 <- 1/se2^2
+    
+    # Calculate pooled estimate
+    beta_pooled <- (w1*beta1 + w2*beta2)/(w1 + w2)
+    
+    # Calculate pooled standard error
+    se_pooled <- sqrt(1/(w1 + w2))
+    
+    # Return as data frame for easier binding
+    data.frame(
+      estimate_pooled = beta_pooled,
+      se_pooled = se_pooled,
+      # Optional: include additional statistics
+      weight1 = w1/(w1 + w2),
+      weight2 = w2/(w1 + w2)
+    )
+  }
+  
+  figure3_pooled_result <- sentara_dynamic_effect_utilization %>%
+    left_join(ynhh_dynamic_effect_utilization, by = c ('Outcome', 'Model', 'Cohort', 'period'))%>%
+    rowwise() %>%
+    mutate(
+      pool_estimates(beta_sentara, se_sentara, beta_ynhh, se_ynhh)
+    ) %>%
+    ungroup()%>%
+    mutate(
+      N_pooled = N_sentara + N_ynhh,
+      estimate_pooled = ifelse(is.na(estimate_pooled), 0, estimate_pooled),
+      conf_low_pooled = estimate_pooled - 1.96 * se_pooled,
+      conf_high_pooled = estimate_pooled + 1.96 * se_pooled,
+      est_ci_pooled = paste0(round(estimate_pooled,round_digit),
+                             " (",round(conf_low_pooled,round_digit),
+                             ", ",round(conf_high_pooled,round_digit),")"))%>%
+    mutate(
+      utilization = ifelse(grepl("icd10", Outcome), 'ICD10 code count', 'Visit count'),
+      visit_type = case_when(
+        grepl("overall", Outcome) ~ 'Combined',
+        grepl("inpatient", Outcome) ~ 'Inpatient',
+        grepl("outpatient", Outcome) ~ 'Outpatient',
+        TRUE ~ NA_character_),
+      Cohort = factor(str_trim(Cohort, side = "both"),  levels = c('Overall','Diabetic','Non-Diabetic')),
+      Cohort_r = case_when(
+      Cohort == 'Overall' ~ 'Overall',
+      Cohort == 'Diabetic' ~ 'People with type II diabetes',
+      Cohort == 'Non-Diabetic' ~ 'People without type II diabetes',
+      TRUE ~ NA_character_))
+}
+
+
+
+figure3_pooled_p4_12m_df  <- get_pooled_results_dynamic_effect_utilizations("p4_12m")%>% 
+  mutate(P = '4 Periods (12 months)')%>%
+  filter(grepl("^2", Model))%>% ## random effect model only
+  mutate(P = '4 Periods (12 months)')%>%
+  mutate(
+    period = case_when(
+      period == -2 ~'[-24m,-12m)',
+      period == -1 ~'[-12m,Index)',
+      period == 0 ~'[Index,12m)',
+      period == 1 ~'[12m,24m)',
+      period == 2 ~'[24m,36m)',
+      TRUE ~ NA_character_),
+    period = factor(period, levels  = c('[-24m,-12m)','[-12m,Index)','[Index,12m)','[12m,24m)','[24m,36m)'))
+    ) 
+
+
+## utilization
+(figure3_pooled_p4_12m <- ggplot(figure3_pooled_p4_12m_df , 
+                                     aes(x = factor(period), y = estimate_pooled, 
+                                         color = Cohort_r,
+                                          shape = Cohort_r)) +
+    facet_grid(utilization ~ visit_type, scales = "free")+
+    geom_point(position = position_dodge(width = 0.5), size = 1.5) +
+    theme_bw() +
+    geom_errorbar(aes(ymin = conf_low_pooled, 
+                      ymax = conf_high_pooled), 
+                  width = 0.3,
+                  position = position_dodge(width = 0.5),
+                  linewidth = 1.,
+                  alpha = 0.8) +
+    geom_hline(yintercept = 0, linetype = 'dashed', color = 'grey', linewidth = 1) +
+    labs(x = "12-month-period", y = "Change relative to baseline") +
+    theme(legend.position = "bottom",
+          plot.title = element_text(hjust = 0.5, face = "bold"))+
+    scale_color_brewer("", palette = 'Set2')+
+    scale_shape_discrete(""))
+
+
+figure3_pooled_p4_12m  %>%
+    ggsave(file.path(output_path,'figure3_pooled_p4_12m.png'),.,
+           width= 12, height=7)
+
+```
+
+
+
+
+## Appendix figures
+### 1 Flow chart: p4_12m with weights 
+```{r,echo = FALSE}
+
+
+n_base_sentara <- nrow(read.csv(file.path(sentara_result_path, "cohort/p4_12m/sentara_baseline_cohort_p4_12m.csv")))
+n_bp_sentara  <- max(read.csv(file.path(sentara_result_path, "estimates/biomarkers/p4_12m/sentara_p4_12m_sbp_m1.csv"))$N)
+n_hba1c_sentara  <- max(read.csv(file.path(sentara_result_path, "estimates/biomarkers/p4_12m/sentara_p4_12m_hba1c_m1.csv"))$N)
+n_cholesterol_sentara  <- max(read.csv(file.path(sentara_result_path, "estimates/biomarkers/p4_12m/sentara_p4_12m_total_cholesterol_m1.csv"))$N)
+
+
+n_base_ynhh <- nrow(read.csv(file.path(ynhh_result_path, "cohort/p4_12m/ynhh_baseline_cohort_p4_12m.csv")))
+n_bp_ynhh  <- max(read.csv(file.path(ynhh_result_path, "estimates/biomarkers/p4_12m/ynhh_p4_12m_sbp_m1.csv"))$N)
+n_hba1c_ynhh  <- max(read.csv(file.path(ynhh_result_path, "estimates/biomarkers/p4_12m/ynhh_p4_12m_hba1c_m1.csv"))$N)
+n_cholesterol_ynhh  <- max(read.csv(file.path(ynhh_result_path, "estimates/biomarkers/p4_12m/ynhh_p4_12m_total_cholesterol_m1.csv"))$N)
+
+
+
+observation <- data.frame(
+  criterion = factor(
+    c(
+    "Four 12-month periods\nwith weight measurements",
+    "Initiated semaglutide",
+    "Overall observation period"
+    ), 
+    levels = c(
+    "Four 12-month periods\nwith weight measurements",
+    "Initiated semaglutide",
+    "Overall observation period"
+    )
+  ),
+  index = c(0,0,0),
+  start = c(-2,-3,-4),
+  end = c( 2, 3, 4) 
+)
+
+
+
+
+# Create sequence data for period information
+periods_points <- data.frame(
+  x = c(-1.5, -0.5, 0.5, 1.5),
+  y = rep("Four 12-month periods\nwith weight measurements", 4),
+  label = c("P -2", "P -1", "P 0", "P 1")
+)
+
+
+# Plotting Part A: Timeline with criteria
+# ggplot(observation, aes(xmin = start, xmax = end, y = criterion)) +
+#   geom_rect(aes(ymin = as.numeric(factor(criterion)) - 0.3, 
+#                 ymax = as.numeric(factor(criterion)) + 0.3), 
+#             fill = "lightblue", color = "black", alpha = 0.2) +
+#   geom_vline(xintercept = 0, linetype = "dashed", color = "grey") +
+#   labs(x = "Index date", y = NULL) +
+#   theme_minimal() +
+#   theme(axis.text.y = element_text(size = 10, hjust = 1))
+# 
+# 
+
+
+# Create timeline plot
+timeline <- ggplot(data = observation, aes(y = criterion)) +
+  geom_vline(xintercept = 0, colour = "red", alpha =0.25) +
+  geom_segment(aes(x = start, xend = end,
+                   y = criterion, yend = criterion),
+               linewidth = 14,
+               color = "lightblue",
+               alpha = 0.3) +
+  # Add arrow
+  annotate("segment", 
+           x = -1, xend = 0,
+           linewidth = 14,
+           y = "Four 12-month periods\nwith weight measurements",
+           color = "salmon",
+           alpha = 0.3)+
+ # Add arrow
+  annotate("segment", 
+           x = -2, xend = 3,
+           y = 0.5,
+           arrow = arrow(length = unit(0.3, "cm")))+
+  # Add sequence points 
+  geom_point(data = periods_points,
+            aes(x = x, y = y),
+            color = "black",
+            size = 2,
+            position = position_nudge(y = +0.04)) +  # Shift points down
+  # Add labels for sequence points
+  geom_text(data = periods_points,
+           aes(x = x, y = y, label = label),
+           position = position_nudge(y = -0.1),  # Shift labels UP
+           size = 2.2) + 
+  # geom_point(aes(x = rr, y = criteria, color = criteria),size = 3) +
+  # Customize scales
+  scale_x_continuous(
+    name = "Time",
+    breaks = seq(-4, 4,1),
+    limits = c(-4, 4),
+    labels = c("2015","First visit","-24m", "-12m", "Index", "+12m","+24m","Last visit","2025")
+  ) +
+  scale_y_discrete("Criterion") +
+  # Theme customization
+  theme_minimal() +
+  theme(
+    panel.grid.minor = element_blank(),
+    panel.grid.major.y = element_blank(),
+    legend.position = "none",
+    axis.text = element_text(face = "bold"),
+    axis.title = element_text(face = "bold")
+  )
+
+
+size_table <- data.frame(
+  criteria = c(rep("D",2),rep("E",2),rep("F",2)),
+  data_source = rep(c("Sentara","YNHH"),3),
+  size = c(n_base_sentara, n_base_ynhh,  55711, 74920, 2796588, 2776059)
+)
+
+
+
+table_base <- ggplot(size_table, aes(data_source , criteria, label = size)) +
+  geom_text(aes(label = format(size, big.mark = ",")), size = 3) +
+  geom_hline(yintercept = seq(0.5, 4.5, 1), color = "gray90") +  # Add horizontal lines
+  scale_x_discrete(position = "top") +
+  labs(y = NULL, x = NULL) +
+  theme_minimal() +
+  theme(
+    panel.grid = element_blank(),
+    axis.text.y = element_blank(),
+    axis.text.x = element_text(size = 12, face = "bold"),
+    axis.ticks = element_blank(),
+    plot.margin = margin(t = 20, r = 20, b = 20, l = 0)  # Adjust margins
+  )
+
+
+# Combine plots
+flow_chart_comb <- timeline + table_base + plot_layout(widths = c(7, 3))
+
+flow_chart_comb
+
+flow_chart_comb  %>%
+    ggsave(file.path(output_path,'appendix_fig_FlowChart_p4_12m.png'),.,
+           width= 9, height= 4)
+
+
+flow_chart_comb %>%
+    ggsave(file.path(output_path,'eFigure1.tiff'),.,
+           device = "tiff",
+           dpi = 300,
+           width= 9,
+           height=4)
+
+```
+
+
+
+
+### 2. biomarker sensitivity overlay 6m and 12m 
+```{r,echo = FALSE, fig.width= 13, fig.height=8, fig.align='center', dpi=300} 
+
+  
+biomarkers_pooled_px_6m_df_overaly <- rbind(get_pooled_results_dynamic_effect_biomarkers("p5_6m")%>% 
+                                              mutate(P = '5 Periods (6 months)', span = '6-months period'),
+                                  get_pooled_results_dynamic_effect_biomarkers("p6_6m") %>% 
+                                    mutate(P = '6 Periods (6 months)', span = '6-months period'),
+                                  get_pooled_results_dynamic_effect_biomarkers("p7_6m") %>% 
+                                    mutate(P = '7 Periods (6 months)', span = '6-months period'),
+                                 get_pooled_results_dynamic_effect_biomarkers("p8_6m") %>% 
+                                   mutate(P = '8 Periods (6 months)', span = '6-months period'))%>%
+  filter(Cohort == 'Overall')%>%
+  mutate(
+    period = case_when(
+      period == -2 ~'[-12m,\n-6m)',
+      period == -1 ~'[-6m,\nIndex)',
+      period == 0 ~'[Index,\n6m)',
+      period == 1 ~'[6m,\n12m)',
+      period == 2 ~'[12m,\n18m)',
+      period == 3 ~'[18m,\n24m)',
+      period == 4 ~'[24m,\n30m)',
+      period == 4 ~'[24m,\n30m)',
+      period == 5 ~'[30m,\n36m)',
+      TRUE ~ NA_character_),
+    period = factor(period, levels  = c('[-12m,\n-6m)','[-6m,\nIndex)','[Index,\n6m)','[6m,\n12m)',
+                                        '[12m,\n18m)','[18m,\n24m)','[24m,\n30m)','[30m,\n36m)'))
+    )
+
+
+
+
+biomarkers_pooled_px_12m_df_overaly <- rbind(
+  get_pooled_results_dynamic_effect_biomarkers("p2_12m")%>%
+    mutate(P = '2 Periods (12 months)', span = '12-months period'),
+  get_pooled_results_dynamic_effect_biomarkers("p4_12m")%>%
+    mutate(P = '4 Periods (12 months)', span = '12-months period'),
+  get_pooled_results_dynamic_effect_biomarkers("p5_12m") %>% 
+    mutate(P = '5 Periods (12 months)', span = '12-months period'))%>%
+  filter(Cohort == 'Overall')%>%
+  mutate(
+    period = case_when(
+      period == -2 ~'[-24m,\n-12m)',
+      period == -1 ~'[-12m,\nIndex)',
+      period == 0 ~'[Index,\n12m)',
+      period == 1 ~'[12m,\n24m)',
+      period == 2 ~'[24m,\n36m)',
+      TRUE ~ NA_character_),
+    period = factor(period, levels  = c('[-24m,\n-12m)','[-12m,\nIndex)','[Index,\n12m)','[12m,\n24m)','[24m,\n36m)'))
+    )
+
+
+
+biomarkers_pooled_px_ovrelay <- rbind(biomarkers_pooled_px_6m_df_overaly, biomarkers_pooled_px_12m_df_overaly) %>%  
+  filter(!is.na(period)) %>%
+  filter(grepl("^2", Model)) ## random effect model only
+
+
+my_colors <- c("royalblue2", "skyblue2","cyan2","darkgreen", "seagreen3", "olivedrab3","chartreuse2")
+  
+(appendix_fig_outcome_px_ovrelay <- ggplot(biomarkers_pooled_px_ovrelay , 
+                      aes(x = factor(period), y = estimate_pooled, 
+                          color = P)) +
+  facet_grid(Outcome~ span , scales  = 'free')+
+  geom_point(position = position_dodge(width = 0.6), size = 1.5) +
+  theme_bw() +
+  geom_errorbar(aes(ymin = conf_low_pooled, 
+                    ymax = conf_high_pooled), 
+                width = 0.3,
+                position = position_dodge(width = 0.6),
+                linewidth = 1.,
+                alpha = 0.8) +
+  geom_hline(yintercept = 0, linetype = 'dashed', color = 'grey', linewidth = 1) +
+  labs(x = "Period", y = "Change relative to baseline") +
+  theme(legend.position = "bottom",
+        plot.title = element_text(hjust = 0.5, face = "bold"))+
+  scale_color_manual("", 
+                     values = my_colors))
+
+
+appendix_fig_outcome_px_ovrelay %>%
+      ggsave(file.path(output_path,str_glue('appendix_fig_biomarkers_px_ovrelay.png')),.,
+             width= 14, height= 12)
+
+
+appendix_fig_outcome_px_ovrelay %>%
+    ggsave(file.path(output_path,'eFigure2.tiff'),.,
+           device = "tiff",
+           dpi = 300,
+           width= 14,
+           height=12)
+
+
+```
+
+
+### 3. expenditure sensitivity overlay 6m and 12m 
+```{r,echo = FALSE, fig.width= 13, fig.height=8, fig.align='center', dpi=300} 
+
+
+expenditures_primary_pooled_px_12m_df_overaly <- rbind(
+  get_pooled_results_dynamic_effect_expenditures("primary","p2_12m")%>% 
+    mutate(P = '2 Periods (12 months)', span = '12-months period'),
+  get_pooled_results_dynamic_effect_expenditures("primary","p4_12m")%>% 
+    mutate(P = '4 Periods (12 months)', span = '12-months period'),
+  get_pooled_results_dynamic_effect_expenditures("primary","p5_12m") %>%
+    mutate(P = '5 Periods (12 months)', span = '12-months period'))%>%
+  filter(Cohort == 'Overall')%>%
+  mutate(
+    period = case_when(
+      period == -2 ~'[-24m,\n-12m)',
+      period == -1 ~'[-12m,\nIndex)',
+      period == 0 ~'[Index,\n12m)',
+      period == 1 ~'[12m,\n24m)',
+      period == 2 ~'[24m,\n36m)',
+      TRUE ~ NA_character_),
+    period = factor(period, levels  = c('[-24m,\n-12m)','[-12m,\nIndex)','[Index,\n12m)','[12m,\n24m)','[24m,\n36m)'))
+    )
+
+
+expenditures_primary_pooled_px_6m_df_overaly  <- rbind(get_pooled_results_dynamic_effect_expenditures("primary","p5_6m")%>% mutate(P = '5 Periods (6 months)', span = '6-months period'),
+                                          get_pooled_results_dynamic_effect_expenditures("primary","p6_6m") %>% mutate(P = '6 Periods (6 months)', span = '6-months period'),
+                                          get_pooled_results_dynamic_effect_expenditures("primary","p7_6m") %>% mutate(P = '7 Periods (6 months)', span = '6-months period'),
+                                           get_pooled_results_dynamic_effect_expenditures("primary","p8_6m") %>% mutate(P = '8 Periods (6 months)', span = '6-months period'))%>%
+  filter(Cohort == 'Overall') %>%
+  mutate(
+    period = case_when(
+      period == -2 ~'[-12m,\n-6m)',
+      period == -1 ~'[-6m,\nIndex)',
+      period == 0 ~'[Index,\n6m)',
+      period == 1 ~'[6m,\n12m)',
+      period == 2 ~'[12m,\n18m)',
+      period == 3 ~'[18m,\n24m)',
+      period == 4 ~'[24m,\n30m)',
+      period == 4 ~'[24m,\n30m)',
+      period == 5 ~'[30m,\n36m)',
+      TRUE ~ NA_character_),
+    period = factor(period, levels  = c('[-12m,\n-6m)','[-6m,\nIndex)','[Index,\n6m)','[6m,\n12m)',
+                                        '[12m,\n18m)','[18m,\n24m)','[24m,\n30m)','[30m,\n36m)'))
+    )
+
+
+expenditures_primary_pooled_px_ovrelay <- rbind(expenditures_primary_pooled_px_6m_df_overaly,
+                                                expenditures_primary_pooled_px_12m_df_overaly) %>%
+  filter(!is.na(period))%>%
+  filter(grepl("^2", Model)) ## random effect model only
+
+my_colors <- c("royalblue2", "skyblue2","cyan2","darkgreen", "seagreen3", "olivedrab3","chartreuse2")
+  
+(appendix_fig_expenditure_outcome_px_ovrelay <- ggplot(expenditures_primary_pooled_px_ovrelay , 
+                      aes(x = factor(period), y = estimate_pooled, 
+                          color = P)) +
+  facet_grid(Outcome ~ span, scales = 'free' )+
+  geom_point(position = position_dodge(width = 0.6), size = 1.5) +
+  theme_bw() +
+  geom_errorbar(aes(ymin = conf_low_pooled, 
+                    ymax = conf_high_pooled), 
+                width = 0.3,
+                position = position_dodge(width = 0.6),
+                linewidth = 1.,
+                alpha = 0.8) +
+  geom_hline(yintercept = 0, linetype = 'dashed', color = 'grey', linewidth = 1) +
+  labs(x = "Period", y = "Change relative to baseline") +
+  theme(legend.position = "bottom",
+        plot.title = element_text(hjust = 0.5, face = "bold"))+
+  scale_color_manual("", 
+                     values = my_colors))
+
+appendix_fig_expenditure_outcome_px_ovrelay %>%
+    ggsave(file.path(output_path,str_glue('appendix_fig_expenditure_outcome_px_ovrelay.png')),.,
+           width= 14, height=8)
+
+appendix_fig_expenditure_outcome_px_ovrelay %>%
+    ggsave(file.path(output_path,'eFigure3.tiff'),.,
+           device = "tiff",
+           dpi = 300,
+           width= 14,
+           height=8)
+
+```
+
+### 4. model comparison for pooled cohort
+```{r}
+
+
+model_compare_pooled_df <- rbind(
+  get_pooled_results_dynamic_effect_utilizations("p4_12m")%>% 
+    select(Outcome, Model, Cohort, period, estimate_pooled, se_pooled, conf_low_pooled, conf_high_pooled),
+  get_pooled_results_dynamic_effect_expenditures("primary","p4_12m")%>%
+    select(Outcome, Model, Cohort, period, estimate_pooled, se_pooled, conf_low_pooled, conf_high_pooled),
+  get_pooled_results_dynamic_effect_biomarkers("p4_12m")%>%
+    select(Outcome, Model, Cohort, period, estimate_pooled, se_pooled, conf_low_pooled, conf_high_pooled)
+  )%>%
+  filter(Cohort == 'Overall')%>%
+  filter(grepl("Random|Restrict", Model))%>% 
+  mutate(
+    Model = gsub("^[0-9]. ","", Model),
+    P = '4 Periods (12 months)',
+    period = case_when(
+      period == -2 ~'[-24m,-12m)',
+      period == -1 ~'[-12m,Index)',
+      period == 0 ~'[Index,12m)',
+      period == 1 ~'[12m,24m)',
+      period == 2 ~'[24m,36m)',
+      TRUE ~ NA_character_),
+    period = factor(period, levels  = c('[-24m,-12m)','[-12m,Index)','[Index,12m)','[12m,24m)','[24m,36m)')),
+    Outcome = case_when(
+      Outcome == "overall_icd10_count_util" ~ 'Combined ICD10 code count',
+      Outcome == "inpatient_icd10_count_util" ~ 'Inpatient ICD10 code count',
+      Outcome == "outpatient_icd10_count_util" ~ 'Outpatient ICD10 code count',
+      Outcome == "overall_visit_count_util" ~ 'Combined visit count',
+      Outcome == "inpatient_visit_count_util" ~ 'Inpatient visit count',
+      Outcome == "outpatient_visit_count_util" ~ 'Outpatient visit count',
+      TRUE ~ Outcome),
+    Outcome = factor(Outcome,
+                     levels = c('Percent of baseline weight (%)','SBP (mmHg)','DBP (mmHg)','HBA1C (%)','Cholesterol (mg/dL)',
+                                'Monthly total expenditure ($)','Monthly inpatient expenditure ($)',
+                                'Monthly outpatient expenditure ($)',
+                                'Combined ICD10 code count','Inpatient ICD10 code count','Outpatient ICD10 code count',
+                                'Combined visit count','Inpatient visit count','Outpatient visit count')))
+
+  
+(appendix_fig_model_compare_pooled <- ggplot(model_compare_pooled_df, 
+                      aes(x = factor(period), y = estimate_pooled, 
+                          color = Model,
+                          shape = Model)) +
+  facet_wrap(vars(Outcome), scales = 'free_y', ncol =2 )+
+  geom_point(position = position_dodge(width = 0.6), size = 1.5) +
+  theme_bw() +
+  geom_errorbar(aes(ymin = conf_low_pooled, 
+                    ymax = conf_high_pooled), 
+                width = 0.3,
+                position = position_dodge(width = 0.6),
+                linewidth = 1.,
+                alpha = 0.8) +
+  geom_hline(yintercept = 0, linetype = 'dashed', color = 'grey', linewidth = 1) +
+  labs(x = "12-month-period", y = "Change relative to baseline") +
+  theme(legend.position = "bottom",
+        plot.title = element_text(hjust = 0.5, face = "bold"))+
+  scale_color_brewer("", palette = 'Set1')+
+  scale_shape_discrete(""))
+
+appendix_fig_model_compare_pooled %>%
+    ggsave(file.path(output_path,str_glue('appendix_fig_model_compare_pooled.png')),.,
+           width= 9, height=9)
+
+appendix_fig_model_compare_pooled %>%
+    ggsave(file.path(output_path,'eFigure4.tiff'),.,
+           device = "tiff",
+           dpi = 300,
+           width= 9,
+           height=9)
+
+```
+
+
+### 5. Site comparison (with random effect model only)
+```{r}
+
+p_spec <- "p4_12m"
+
+################
+## Biomarkers ##
+################
+
+# combine and process results
+sentara_dynamic_effect_biomarkers <- list.files(
+    path = file.path(sentara_result_path, str_glue("estimates/biomarkers/{p_spec}")),
+    pattern = str_glue("sentara_{p_spec}.*\\.csv$"),
+    full.names = TRUE) %>%
+    lapply(data.table::fread) %>%
+    bind_rows()%>%
+    filter(grepl("^a", Type))%>% # dynamic multiple effect
+    mutate(Cohort = str_trim(gsub("^[0-9].|\\([^()]*\\)","", Cohort)),
+           Cohort = ifelse(Cohort == 'Pooled', 'Overall',Cohort),
+           site = 'Sentara') %>%
+    select(Outcome, Model,Cohort, period, estimate, conf.high, conf.low, site)
+
+# combine and process results
+ynhh_dynamic_effect_biomarkers <- list.files(
+  path = file.path(ynhh_result_path, str_glue("estimates/biomarkers/{p_spec}")),
+  pattern = str_glue("ynhh_{p_spec}.*\\.csv$"),
+  full.names = TRUE) %>%
+  lapply(data.table::fread) %>%
+  bind_rows()%>%
+  filter(grepl("^a", Type))%>%  # dynamic multiple effect
+  mutate(Cohort = str_trim(gsub("^[0-9].|\\([^()]*\\)","", Cohort)),
+         Cohort = ifelse(Cohort == 'Pooled', 'Overall',Cohort),
+         site = 'YNHHS') %>%
+    select(Outcome, Model,Cohort, period, estimate, conf.high, conf.low, site)
+  
+
+#################
+## Expenditure ##
+#################
+dx_type <- "primary"
+sentara_dynamic_effect_expenditure<- list.files(
+    path = file.path(sentara_result_path, str_glue("estimates/expenditures/{p_spec}")),
+    pattern = str_glue("sentara_{p_spec}_{dx_type}.*\\.csv$"),
+    full.names = TRUE ) %>%
+    lapply(data.table::fread) %>%
+    bind_rows()%>%
+    filter(grepl("^a", Type))%>%  # dynamic multiple effect
+    mutate(Cohort = str_trim(gsub("^[0-9].|\\([^()]*\\)","", Cohort)),
+           Cohort = ifelse(Cohort == 'Pooled', 'Overall',Cohort),
+           site = 'Sentara') %>%
+    select(Outcome, Model,Cohort, period, estimate, conf.high, conf.low, site)
+
+ynhh_dynamic_effect_expenditure<- list.files(
+  path = file.path(ynhh_result_path, str_glue("estimates/expenditures/{p_spec}")),
+  pattern = str_glue("ynhh_{p_spec}_{dx_type}.*\\.csv$"),
+  full.names = TRUE ) %>%
+  lapply(data.table::fread) %>%
+  bind_rows()%>%
+  filter(grepl("^a", Type))%>%  # dynamic multiple effect
+  mutate(Cohort = str_trim(gsub("^[0-9].|\\([^()]*\\)","", Cohort)),
+         Cohort = ifelse(Cohort == 'Pooled', 'Overall',Cohort),
+         site = 'YNHHS') %>%
+    select(Outcome, Model,Cohort, period, estimate, conf.high, conf.low, site)
+    
+
+
+###################
+## Utilizations ###
+###################
+sentara_dynamic_effect_utilization<- list.files(
+    path = file.path(sentara_result_path, str_glue("estimates/utilizations/{p_spec}")),
+    pattern = str_glue("sentara_{p_spec}_.*\\.csv$"),
+    full.names = TRUE ) %>%
+    lapply(data.table::fread) %>%
+    bind_rows()%>%
+    filter(grepl("^a", Type))%>%  # dynamic multiple effect
+    mutate(Cohort = str_trim(gsub("^[0-9].|\\([^()]*\\)","", Cohort)),
+           Cohort = ifelse(Cohort == 'Pooled', 'Overall',Cohort),
+           site = 'Sentara') %>%
+    select(Outcome, Model,Cohort, period, estimate, conf.high, conf.low, site)
+
+ynhh_dynamic_effect_utilization<- list.files(
+  path = file.path(ynhh_result_path, str_glue("estimates/utilizations/{p_spec}")),
+  pattern = str_glue("ynhh_{p_spec}_.*\\.csv$"),
+  full.names = TRUE ) %>%
+  lapply(data.table::fread) %>%
+  bind_rows()%>%
+  filter(grepl("^a", Type))%>%  # dynamic multiple effect
+  mutate(Cohort = str_trim(gsub("^[0-9].|\\([^()]*\\)","", Cohort)),
+         Cohort = ifelse(Cohort == 'Pooled', 'Overall',Cohort),
+         site = 'YNHHS') %>%
+    select(Outcome, Model,Cohort, period, estimate, conf.high, conf.low, site)
+
+
+
+site_compare_df <- rbind(
+  sentara_dynamic_effect_expenditure,
+  ynhh_dynamic_effect_expenditure,
+  sentara_dynamic_effect_biomarkers,
+  ynhh_dynamic_effect_biomarkers,
+  sentara_dynamic_effect_utilization,
+  ynhh_dynamic_effect_utilization
+  )%>%
+  filter(Outcome %in% c('weight_pct','sbp','dbp','hba1c','total_cholesterol',
+                        'total_expenditure','inpatient_expenditure','outpatient_expenditure',
+                        'overall_icd10_count_util','inpatient_icd10_count_util','outpatient_icd10_count_util',
+                        'overall_visit_count_util','inpatient_visit_count_util','outpatient_visit_count_util'))%>%
+  filter(Cohort == 'Overall')%>%
+  filter(grepl("Random", Model))%>% 
+  mutate(
+    Model = gsub("^[0-9]. ","", Model),
+    P = '4 Periods (12 months)',
+    period = case_when(
+      period == -2 ~'[-24m,-12m)',
+      period == -1 ~'[-12m,Index)',
+      period == 0 ~'[Index,12m)',
+      period == 1 ~'[12m,24m)',
+      period == 2 ~'[24m,36m)',
+      TRUE ~ NA_character_),
+    period = factor(period, levels  = c('[-24m,-12m)','[-12m,Index)','[Index,12m)','[12m,24m)','[24m,36m)')),
+    Outcome = case_when(
+      Outcome == 'sbp' ~ 'SBP (mmHg)',
+      Outcome == 'dbp' ~ 'DBP (mmHg)',
+      Outcome == 'hba1c' ~ 'HBA1C (%)',
+      Outcome == 'total_cholesterol' ~ 'Cholesterol (mg/dL)',
+      Outcome == 'weight_pct' ~ 'Percent of baseline weight (%)',
+      Outcome == "total_expenditure" ~ 'Monthly total expenditure ($)',
+      Outcome == "inpatient_expenditure" ~  'Monthly inpatient expenditure ($)',
+      Outcome == "outpatient_expenditure" ~ 'Monthly outpatient expenditure ($)',
+      Outcome == "overall_icd10_count_util" ~ 'Combined ICD10 code count',
+      Outcome == "inpatient_icd10_count_util" ~ 'Inpatient ICD10 code count',
+      Outcome == "outpatient_icd10_count_util" ~ 'Outpatient ICD10 code count',
+      Outcome == "overall_visit_count_util" ~ 'Combined visit count',
+      Outcome == "inpatient_visit_count_util" ~ 'Inpatient visit count',
+      Outcome == "outpatient_visit_count_util" ~ 'Outpatient visit count',
+      TRUE ~ Outcome),
+    Outcome = factor(Outcome,
+                     levels = c('Percent of baseline weight (%)','SBP (mmHg)','DBP (mmHg)','HBA1C (%)','Cholesterol (mg/dL)',
+                                'Monthly total expenditure ($)','Monthly inpatient expenditure ($)',
+                                'Monthly outpatient expenditure ($)',
+                                'Combined ICD10 code count','Inpatient ICD10 code count','Outpatient ICD10 code count',
+                                'Combined visit count','Inpatient visit count','Outpatient visit count')))
+  
+
+(appendix_fig_site_compare <- ggplot(site_compare_df, 
+                      aes(x = factor(period), y = estimate, 
+                          color = site,
+                          shape = site)) +
+  facet_wrap(vars(Outcome), scales = 'free_y', ncol =2 )+
+  geom_point(position = position_dodge(width = 0.6), size = 1.5) +
+  theme_bw() +
+  geom_errorbar(aes(ymin = conf.low, 
+                    ymax = conf.high), 
+                width = 0.3,
+                position = position_dodge(width = 0.6),
+                linewidth = 1.,
+                alpha = 0.8) +
+  geom_hline(yintercept = 0, linetype = 'dashed', color = 'grey', linewidth = 1) +
+  labs(x = "12-month-period", y = "Change relative to baseline") +
+  theme(legend.position = "bottom",
+        plot.title = element_text(hjust = 0.5, face = "bold"))+
+  scale_color_manual(
+    "",
+    values = c("Sentara" = "orange2", "YNHHS" = "royalblue4")
+  )+
+  scale_shape_discrete(""))
+
+
+appendix_fig_site_compare %>%
+    ggsave(file.path(output_path,str_glue('appendix_fig_site_compare.png')),.,
+           width= 9, height=9)
+
+
+appendix_fig_site_compare %>%
+    ggsave(file.path(output_path,'eFigure5.tiff'),.,
+           device = "tiff",
+           dpi = 300,
+           width= 9,
+           height=9)
+
+```
