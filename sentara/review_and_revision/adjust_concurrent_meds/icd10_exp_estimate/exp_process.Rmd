@@ -1,0 +1,36 @@
+---
+title: "expenditure_all_process"
+author: "YL"
+date: "2024-11-05"
+output: html_document
+---
+
+
+```{r}
+
+knitr::opts_knit$set(root.dir = "C:/Users/YXLIU3/Desktop/semaglutide_realworld_impact/icd10_exp_estimate")
+
+
+setwd("C:/Users/YXLIU3/Desktop/semaglutide_realworld_impact")
+
+library(dplyr)
+
+# primary dx: demo, as the template
+exp_prncp <- read.csv("exp_prncp_100pct.csv")
+
+# all dx
+exp_inpatient <- read.csv("exp_inpatient_.9threshold_20pct.csv") %>%
+  mutate(exp_total_inpatient = b_total) %>%
+  select(icd10, exp_total_inpatient)
+
+exp_outpatient <- read.csv("exp_outpatient_.9threshold_20pct.csv")%>%
+  mutate(exp_total_outpatient = b_total) %>%
+  select(icd10, exp_total_outpatient)
+
+exp_all <- exp_outpatient %>%
+  full_join(exp_inpatient, by = 'icd10')
+
+write.csv(exp_all, "exp_all_20pct.csv", row.names = F)
+
+
+```
